@@ -6,7 +6,7 @@ import pyqtgraph as pg
 from vnpy.trader.ui import QtCore, QtGui, QtWidgets
 from vnpy.trader.object import BarData
 
-from .base import UP_COLOR, DOWN_COLOR, PEN_WIDTH, BAR_WIDTH
+from .base import BLACK_COLOR, UP_COLOR, DOWN_COLOR, PEN_WIDTH, BAR_WIDTH
 from .manager import BarManager
 
 
@@ -21,6 +21,8 @@ class ChartItem(pg.GraphicsObject):
 
         self._bar_picutures: Dict[int, QtGui.QPicture] = {}
         self._item_picuture: QtGui.QPicture = None
+
+        self._black_brush: QtGui.QBrush = pg.mkBrush(color=BLACK_COLOR)
 
         self._up_pen: QtGui.QPen = pg.mkPen(
             color=UP_COLOR, width=PEN_WIDTH
@@ -75,8 +77,7 @@ class ChartItem(pg.GraphicsObject):
 
         bars = self._manager.get_all_bars()
         for ix, bar in enumerate(bars):
-            bar_picture = self._draw_bar_picture(ix, bar)
-            self._bar_picutures[ix] = bar_picture
+            self._bar_picutures[ix] = None
 
         self.update()
 
@@ -86,8 +87,7 @@ class ChartItem(pg.GraphicsObject):
         """
         ix = self._manager.get_index(bar.datetime)
 
-        bar_picture = self._draw_bar_picture(ix, bar)
-        self._bar_picutures[ix] = bar_picture
+        self._bar_picutures[ix] = None
 
         self.update()
 
@@ -129,8 +129,14 @@ class ChartItem(pg.GraphicsObject):
         self._item_picuture = QtGui.QPicture()
         painter = QtGui.QPainter(self._item_picuture)
 
-        for n in range(min_ix, max_ix):
-            bar_picture = self._bar_picutures[n]
+        for ix in range(min_ix, max_ix):
+            bar_picture = self._bar_picutures[ix]
+
+            if bar_picture is None:
+                bar = self._manager.get_bar(ix)
+                bar_picture = self._draw_bar_picture(ix, bar)
+                self._bar_picutures[ix] = bar_picture
+
             bar_picture.play(painter)
 
         painter.end()
@@ -160,10 +166,17 @@ class CandleItem(ChartItem):
         # Set painter color
         if bar.close_price >= bar.open_price:
             painter.setPen(self._up_pen)
-            painter.setBrush(self._up_brush)
+            painter.setBrush(self._black_brush)
         else:
             painter.setPen(self._down_pen)
             painter.setBrush(self._down_brush)
+
+        # Draw candle shadow
+        if bar.high_price > bar.low_price:
+            painter.drawLine(
+                QtCore.QPointF(ix, bar.high_price),
+                QtCore.QPointF(ix, bar.low_price)
+            )
 
         # Draw candle body
         if bar.open_price == bar.close_price:
@@ -179,22 +192,6 @@ class CandleItem(ChartItem):
                 bar.close_price - bar.open_price
             )
             painter.drawRect(rect)
-
-        # Draw candle shadow
-        body_bottom = min(bar.open_price, bar.close_price)
-        body_top = max(bar.open_price, bar.close_price)
-
-        if bar.low_price < body_bottom:
-            painter.drawLine(
-                QtCore.QPointF(ix, bar.low_price),
-                QtCore.QPointF(ix, body_bottom),
-            )
-
-        if bar.high_price > body_top:
-            painter.drawLine(
-                QtCore.QPointF(ix, bar.high_price),
-                QtCore.QPointF(ix, body_top),
-            )
 
         # Finish
         painter.end()

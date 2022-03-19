@@ -41,7 +41,7 @@ class ChartWidget(pg.PlotWidget):
 
     def _init_ui(self) -> None:
         """"""
-        self.setWindowTitle("ChartWidget of vn.py")
+        self.setWindowTitle("ChartWidget of VeighNa")
 
         self._layout = pg.GraphicsLayout()
         self._layout.setContentsMargins(10, 10, 10, 10)
@@ -50,7 +50,8 @@ class ChartWidget(pg.PlotWidget):
         self._layout.setZValue(0)
         self.setCentralItem(self._layout)
 
-        self._x_axis = DatetimeAxis(self._manager, orientation='bottom')
+    def _get_new_x_axis(self):
+        return DatetimeAxis(self._manager, orientation='bottom')
 
     def add_cursor(self) -> None:
         """"""
@@ -69,7 +70,7 @@ class ChartWidget(pg.PlotWidget):
         Add plot area.
         """
         # Create plot object
-        plot = pg.PlotItem(axisItems={'bottom': self._x_axis})
+        plot = pg.PlotItem(axisItems={'bottom': self._get_new_x_axis()})
         plot.setMenuEnabled(False)
         plot.setClipToView(True)
         plot.hideAxis('left')
@@ -106,6 +107,10 @@ class ChartWidget(pg.PlotWidget):
         # Store plot object in dict
         self._plots[plot_name] = plot
 
+        # Add plot onto the layout
+        self._layout.nextRow()
+        self._layout.addItem(plot)
+
     def add_item(
         self,
         item_class: Type[ChartItem],
@@ -120,10 +125,8 @@ class ChartWidget(pg.PlotWidget):
 
         plot = self._plots.get(plot_name)
         plot.addItem(item)
-        self._item_plot_map[item] = plot
 
-        self._layout.nextRow()
-        self._layout.addItem(plot)
+        self._item_plot_map[item] = plot
 
     def get_plot(self, plot_name: str) -> pg.PlotItem:
         """

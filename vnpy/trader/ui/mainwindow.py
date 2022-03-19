@@ -1,15 +1,16 @@
 """
-Implements main window of VN Trader.
+Implements main window of the trading platform.
 """
 
 import webbrowser
 from functools import partial
 from importlib import import_module
-from typing import Callable
+from typing import Callable, Dict, Tuple
 
-from PyQt5 import QtCore, QtGui, QtWidgets
-
+import vnpy
 from vnpy.event import EventEngine
+
+from .qt import QtCore, QtGui, QtWidgets
 from .widget import (
     TickMonitor,
     OrderMonitor,
@@ -30,23 +31,23 @@ from ..utility import get_icon_path, TRADER_DIR
 
 class MainWindow(QtWidgets.QMainWindow):
     """
-    Main window of VN Trader.
+    Main window of the trading platform.
     """
 
     def __init__(self, main_engine: MainEngine, event_engine: EventEngine):
         """"""
-        super(MainWindow, self).__init__()
-        self.main_engine = main_engine
-        self.event_engine = event_engine
+        super().__init__()
 
-        self.window_title = f"VN Trader [{TRADER_DIR}]"
+        self.main_engine: MainEngine = main_engine
+        self.event_engine: EventEngine = event_engine
 
-        self.connect_dialogs = {}
-        self.widgets = {}
+        self.window_title: str = f"VeighNa Trader 社区版 - {vnpy.__version__}   [{TRADER_DIR}]"
+
+        self.widgets: Dict[str, QtWidgets.QWidget] = {}
 
         self.init_ui()
 
-    def init_ui(self):
+    def init_ui(self) -> None:
         """"""
         self.setWindowTitle(self.window_title)
         self.init_dock()
@@ -54,7 +55,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.init_menu()
         self.load_window_setting("custom")
 
-    def init_dock(self):
+    def init_dock(self) -> None:
         """"""
         self.trading_widget, trading_dock = self.create_dock(
             TradingWidget, "交易", QtCore.Qt.LeftDockWidgetArea
@@ -85,9 +86,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.save_window_setting("default")
 
-    def init_menu(self):
+        tick_widget.itemDoubleClicked.connect(self.trading_widget.update_with_cell)
+        position_widget.itemDoubleClicked.connect(self.trading_widget.update_with_cell)
+
+    def init_menu(self) -> None:
         """"""
         bar = self.menuBar()
+        bar.setNativeMenuBar(False)     # for mac and linux
 
         # System menu
         sys_menu = bar.addMenu("系统")
@@ -95,11 +100,21 @@ class MainWindow(QtWidgets.QMainWindow):
         gateway_names = self.main_engine.get_all_gateway_names()
         for name in gateway_names:
             func = partial(self.connect, name)
-            self.add_menu_action(sys_menu, f"连接{name}", "connect.ico", func)
+            self.add_action(
+                sys_menu,
+                f"连接{name}",
+                get_icon_path(__file__, "connect.ico"),
+                func
+            )
 
         sys_menu.addSeparator()
 
-        self.add_menu_action(sys_menu, "退出", "exit.ico", self.close)
+        self.add_action(
+            sys_menu,
+            "退出",
+            get_icon_path(__file__, "exit.ico"),
+            self.close
+        )
 
         # App menu
         app_menu = bar.addMenu("功能")
@@ -110,13 +125,8 @@ class MainWindow(QtWidgets.QMainWindow):
             widget_class = getattr(ui_module, app.widget_name)
 
             func = partial(self.open_widget, widget_class, app.app_name)
-            icon_path = str(app.app_path.joinpath("ui", app.icon_name))
-            self.add_menu_action(
-                app_menu, app.display_name, icon_path, func
-            )
-            self.add_toolbar_action(
-                app.display_name, icon_path, func
-            )
+
+            self.add_action(app_menu, app.display_name, app.icon_name, func, True)
 
         # Global setting editor
         action = QtWidgets.QAction("配置", self)
@@ -126,41 +136,44 @@ class MainWindow(QtWidgets.QMainWindow):
         # Help menu
         help_menu = bar.addMenu("帮助")
 
-        self.add_menu_action(
+        self.add_action(
             help_menu,
             "查询合约",
-            "contract.ico",
+            get_icon_path(__file__, "contract.ico"),
             partial(self.open_widget, ContractManager, "contract"),
-        )
-        self.add_toolbar_action(
-            "查询合约",
-            "contract.ico",
-            partial(self.open_widget, ContractManager, "contract")
+            True
         )
 
-        self.add_menu_action(
-            help_menu, "还原窗口", "restore.ico", self.restore_window_setting
+        self.add_action(
+            help_menu,
+            "还原窗口",
+            get_icon_path(__file__, "restore.ico"),
+            self.restore_window_setting
         )
 
-        self.add_menu_action(
-            help_menu, "测试邮件", "email.ico", self.send_test_email
+        self.add_action(
+            help_menu,
+            "测试邮件",
+            get_icon_path(__file__, "email.ico"),
+            self.send_test_email
         )
 
-        self.add_menu_action(
-            help_menu, "社区论坛", "forum.ico", self.open_forum
-        )
-        self.add_toolbar_action(
-            "社区论坛", "forum.ico", self.open_forum
+        self.add_action(
+            help_menu,
+            "社区论坛",
+            get_icon_path(__file__, "forum.ico"),
+            self.open_forum,
+            True
         )
 
-        self.add_menu_action(
+        self.add_action(
             help_menu,
             "关于",
-            "about.ico",
+            get_icon_path(__file__, "about.ico"),
             partial(self.open_widget, AboutDialog, "about"),
         )
 
-    def init_toolbar(self):
+    def init_toolbar(self) -> None:
         """"""
         self.toolbar = QtWidgets.QToolBar(self)
         self.toolbar.setObjectName("工具栏")
@@ -177,15 +190,16 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.addToolBar(QtCore.Qt.LeftToolBarArea, self.toolbar)
 
-    def add_menu_action(
+    def add_action(
         self,
         menu: QtWidgets.QMenu,
         action_name: str,
         icon_name: str,
         func: Callable,
-    ):
+        toolbar: bool = False
+    ) -> None:
         """"""
-        icon = QtGui.QIcon(get_icon_path(__file__, icon_name))
+        icon = QtGui.QIcon(icon_name)
 
         action = QtWidgets.QAction(action_name, self)
         action.triggered.connect(func)
@@ -193,24 +207,15 @@ class MainWindow(QtWidgets.QMainWindow):
 
         menu.addAction(action)
 
-    def add_toolbar_action(
-        self,
-        action_name: str,
-        icon_name: str,
-        func: Callable,
-    ):
-        """"""
-        icon = QtGui.QIcon(get_icon_path(__file__, icon_name))
-
-        action = QtWidgets.QAction(action_name, self)
-        action.triggered.connect(func)
-        action.setIcon(icon)
-
-        self.toolbar.addAction(action)
+        if toolbar:
+            self.toolbar.addAction(action)
 
     def create_dock(
-        self, widget_class: QtWidgets.QWidget, name: str, area: int
-    ):
+        self,
+        widget_class: QtWidgets.QWidget,
+        name: str,
+        area: int
+    ) -> Tuple[QtWidgets.QWidget, QtWidgets.QDockWidget]:
         """
         Initialize a dock widget.
         """
@@ -223,17 +228,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.addDockWidget(area, dock)
         return widget, dock
 
-    def connect(self, gateway_name: str):
+    def connect(self, gateway_name: str) -> None:
         """
         Open connect dialog for gateway connection.
         """
-        dialog = self.connect_dialogs.get(gateway_name, None)
-        if not dialog:
-            dialog = ConnectDialog(self.main_engine, gateway_name)
-
+        dialog = ConnectDialog(self.main_engine, gateway_name)
         dialog.exec_()
 
-    def closeEvent(self, event):
+    def closeEvent(self, event: QtGui.QCloseEvent) -> None:
         """
         Call main engine close function before exit.
         """
@@ -256,7 +258,7 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             event.ignore()
 
-    def open_widget(self, widget_class: QtWidgets.QWidget, name: str):
+    def open_widget(self, widget_class: QtWidgets.QWidget, name: str) -> None:
         """
         Open contract manager.
         """
@@ -278,7 +280,7 @@ class MainWindow(QtWidgets.QMainWindow):
         settings.setValue("state", self.saveState())
         settings.setValue("geometry", self.saveGeometry())
 
-    def load_window_setting(self, name: str):
+    def load_window_setting(self, name: str) -> None:
         """
         Load previous window size and state by trader path and setting name.
         """
@@ -290,25 +292,25 @@ class MainWindow(QtWidgets.QMainWindow):
             self.restoreState(state)
             self.restoreGeometry(geometry)
 
-    def restore_window_setting(self):
+    def restore_window_setting(self) -> None:
         """
         Restore window to default setting.
         """
         self.load_window_setting("default")
         self.showMaximized()
 
-    def send_test_email(self):
+    def send_test_email(self) -> None:
         """
         Sending a test email.
         """
-        self.main_engine.send_email("VN Trader", "testing")
+        self.main_engine.send_email("VeighNa Trader", "testing")
 
-    def open_forum(self):
+    def open_forum(self) -> None:
         """
         """
         webbrowser.open("https://www.vnpy.com/forum/")
 
-    def edit_global_setting(self):
+    def edit_global_setting(self) -> None:
         """
         """
         dialog = GlobalDialog()
